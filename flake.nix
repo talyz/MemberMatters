@@ -155,6 +155,17 @@
 
             inherit (lib.options) mkOption;
             inherit (lib.modules) mkIf;
+
+            membermattersEnv = {
+              MM_ENV="Production";
+              MM_LOG_LOCATION="errors.log";
+              MM_USE_POSTGRES="True";
+              POSTGRES_HOST="";
+              MM_REDIS_HOST="redis://127.0.0.1:6379/0";
+              MM_STATIC_LOCATION="${cfg.static-root}";
+              DJANGO_SETTINGS_MODULE="membermatters.settings";
+              PYTHONPATH = "${cfg.venv}/${pythonSet.python.sitePackages}";
+            };
           in
           {
             options.services.membermatters = {
@@ -184,16 +195,44 @@
             };
 
             config = mkIf cfg.enable {
+              services.postgresql = {
+                enable = true;
+                ensureDatabases = [ "membermatters" ];
+                ensureUsers = [
+                  {
+                    name = "membermatters";
+                    ensureDBOwnership = true;
+                  }
+                ];
+              };
+
+              services.redis.servers = {
+                membermatters = {
+                  enable = true;
+                  bind = "0.0.0.0";
+                  port = 6379;
+                  # user = "membermatters";
+                  # unixSocket = "/run/redis-membermatters-caching/socket";
+                  # unixSocketPerm = 600;
+                };
+              };
+
               systemd.services.membermatters = {
                 description = "Django Webapp server";
 
-                environment = {
-                  MM_LOG_LOCATION="errors.log";
-                  MM_DB_LOCATION="db.sqlite3";
-                  MM_STATIC_LOCATION="${cfg.static-root}";
-                  DJANGO_SETTINGS_MODULE="membermatters.settings";
-                  PYTHONPATH = "${cfg.venv}/${pythonSet.python.sitePackages}";
-                };
+                after = [
+                  "network.target"
+                  "postgresql.service"
+                ];
+                requires = [
+                  "postgresql.service"
+                ];
+                wants = [
+                  "membermatters-celery-worker.service"
+                  "membermatters-celery-beat.service"
+                ];
+
+                environment = membermattersEnv;
 
                 serviceConfig = {
                   ExecStartPre = pkgs.writeShellScript "membermatter-prestart" ''
@@ -201,28 +240,84 @@
                     ${cfg.venv}/bin/manage migrate
                     ${cfg.venv}/bin/manage loaddata ${pythonSet.membermatters.src}/fixtures/initial.json
                   '';
-                  ExecStart = "${cfg.venv}/bin/daphne membermatters.asgi:application";
+                  ExecStart = "${cfg.venv}/bin/daphne -b 0.0.0.0 -p 8000 membermatters.asgi:application";
                   Restart = "on-failure";
 
-                  DynamicUser = true;
+                  User = "membermatters";
+                  Group = "membermatters";
+
                   StateDirectory = "membermatters";
                   RuntimeDirectory = "membermatters";
+                  # LogsDirectory = "membermatters";
                   WorkingDirectory = "/var/lib/membermatters";
 
-                  BindReadOnlyPaths = [
-                    "${
-                      config.environment.etc."ssl/certs/ca-certificates.crt".source
-                    }:/etc/ssl/certs/ca-certificates.crt"
-                    builtins.storeDir
-                    "-/etc/resolv.conf"
-                    "-/etc/nsswitch.conf"
-                    "-/etc/hosts"
-                    "-/etc/localtime"
-                  ];
+                  # BindReadOnlyPaths = [
+                  #   "${
+                  #     config.environment.etc."ssl/certs/ca-certificates.crt".source
+                  #   }:/etc/ssl/certs/ca-certificates.crt"
+                  #   builtins.storeDir
+                  #   "-/etc/resolv.conf"
+                  #   "-/etc/nsswitch.conf"
+                  #   "-/etc/hosts"
+                  #   "-/etc/localtime"
+                  # ];
                 };
 
                 wantedBy = [ "multi-user.target" ];
               };
+
+              systemd.services.membermatters-celery-worker = {
+                after = [
+                  "network.target"
+                  "postgresql.service"
+                  "membermatters.service"
+                ];
+                requires = [
+                  "postgresql.service"
+                  "membermatters.service"
+                ];
+                environment = membermattersEnv;
+                serviceConfig = {
+                  Type = "simple";
+                  User = "membermatters";
+                  Group = "membermatters";
+                  StateDirectory = "membermatters-celery-worker";
+                  WorkingDirectory = "/var/lib/membermatters-celery-worker";
+                  PrivateTmp = true;
+                  Restart = "always";
+                  ExecStart = "${cfg.venv}/bin/celery --app=membermatters.celeryapp:app worker --pool=prefork -O fair";
+                };
+              };
+
+              systemd.services.membermatters-celery-beat = {
+                after = [
+                  "network.target"
+                  "postgresql.service"
+                  "membermatters.service"
+                ];
+                requires = [
+                  "postgresql.service"
+                  "membermatters.service"
+                ];
+                environment = membermattersEnv;
+                serviceConfig = {
+                  Type = "simple";
+                  User = "membermatters";
+                  Group = "membermatters";
+                  StateDirectory = "membermatters-celery-beat";
+                  WorkingDirectory = "/var/lib/membermatters-celery-beat";
+                  PrivateTmp = true;
+                  Restart = "always";
+                  ExecStart = "${cfg.venv}/bin/celery --app=membermatters.celeryapp:app beat -s /var/lib/membermatters/celerybeat-schedule";
+                };
+              };
+
+              users.users.membermatters = {
+                group = "membermatters";
+                isSystemUser = true;
+              };
+              users.groups.membermatters = { };
+
             };
 
           };
@@ -238,6 +333,8 @@
             nodes.machine =
               { ... }:
               {
+                virtualisation.graphics = false;
+
                 imports = [
                   self.nixosModules.membermatters
                 ];
@@ -247,6 +344,8 @@
                 };
 
                 system.stateVersion = "25.11";
+
+                networking.firewall.enable = false;
               };
 
             testScript = ''
@@ -254,6 +353,7 @@
 
               with subtest("Web interface getting ready"):
                   machine.wait_until_succeeds("curl -fs localhost:8000/api/config/")
+                  print(machine.succeed("curl -fs localhost:8000/api/config/"))
             '';
           };
 
