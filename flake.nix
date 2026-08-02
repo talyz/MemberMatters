@@ -110,34 +110,6 @@
       );
 
       nixosModules = let
-        # Django static roots grouped per system
-        staticRoots = forAllSystems (
-          system:
-          let
-            pkgs = nixpkgs.legacyPackages.${system};
-            inherit (pkgs) stdenv;
-
-            pythonSet = pythonSets.${system};
-
-            venv = pythonSet.mkVirtualEnv "membermatters-env" workspace.deps.default;
-
-          in
-          stdenv.mkDerivation {
-            name = "membermatters-static";
-            inherit (pythonSet.membermatters) src;
-
-            dontConfigure = true;
-            dontBuild = true;
-
-            nativeBuildInputs = [
-              venv
-            ];
-
-            installPhase = ''
-              env MM_LOG_LOCATION=errors.log MM_DB_LOCATION=db.sqlite3 MM_STATIC_LOCATION="$out" python manage.py collectstatic
-            '';
-          }
-        );
       in {
         membermatters =
           {
@@ -156,13 +128,29 @@
             inherit (lib.options) mkOption;
             inherit (lib.modules) mkIf;
 
+            staticRoot = pkgs.stdenv.mkDerivation {
+              name = "membermatters-static";
+              inherit (pythonSet.membermatters) src;
+
+              dontConfigure = true;
+              dontBuild = true;
+
+              nativeBuildInputs = [
+                cfg.venv
+              ];
+
+              installPhase = ''
+                env MM_LOG_LOCATION=errors.log MM_DB_LOCATION=db.sqlite3 MM_STATIC_LOCATION="$out/static" python manage.py collectstatic
+              '';
+            };
+
             membermattersEnv = {
               MM_ENV="Production";
               MM_LOG_LOCATION="errors.log";
               MM_USE_POSTGRES="True";
               POSTGRES_HOST="";
               MM_REDIS_HOST="redis://127.0.0.1:6379/0";
-              MM_STATIC_LOCATION="${cfg.static-root}";
+              MM_STATIC_LOCATION="${staticRoot}";
               DJANGO_SETTINGS_MODULE="membermatters.settings";
               PYTHONPATH = "${cfg.venv}/${pythonSet.python.sitePackages}";
             };
@@ -185,11 +173,11 @@
                 '';
               };
 
-              static-root = mkOption {
-                type = lib.types.package;
-                default = staticRoots.${system};
+              hostname = mkOption {
+                type = lib.types.str;
+                example = "membermatters.example.com";
                 description = ''
-                  Django-webapp static root
+                  The hostname MemberMatters will be hosted at.
                 '';
               };
             };
@@ -312,6 +300,35 @@
                 };
               };
 
+              services.nginx = {
+                enable = true;
+
+                # recommendedTlsSettings = true;
+                recommendedOptimisation = true;
+                recommendedGzipSettings = true;
+                recommendedProxySettings = true;
+
+                upstreams.membermatters.servers."localhost:8000" = { };
+
+                virtualHosts.${cfg.hostname} = {
+                  root = self.packages.${system}.frontend;
+                  locations = {
+                    "/".tryFiles = "try_files $uri $uri/ /index.html";
+                    "/static" = {
+                      root = staticRoot;
+                    };
+                    "~ ^/(api|admin)".proxyPass = "http://membermatters";
+                    # locations."/".extraConfig = ''
+                    #   proxy_connect_timeout   300s;
+                    # '';
+                    "/ws" = {
+                      proxyPass = "http://membermatters";
+                      proxyWebsockets = true;
+                    };
+                  };
+                };
+              };
+
               users.users.membermatters = {
                 group = "membermatters";
                 isSystemUser = true;
@@ -341,6 +358,7 @@
 
                 services.membermatters = {
                   enable = true;
+                  hostname = "localhost";
                 };
 
                 system.stateVersion = "25.11";
