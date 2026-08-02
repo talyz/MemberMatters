@@ -149,7 +149,8 @@
               MM_LOG_LOCATION="errors.log";
               MM_USE_POSTGRES="True";
               POSTGRES_HOST="";
-              MM_REDIS_HOST="redis://127.0.0.1:6379/0";
+              MM_REDIS_HOST="unix://${config.services.redis.servers.membermatters.unixSocket}";
+              MM_CELERY_BROKER_URL="redis+socket://${config.services.redis.servers.membermatters.unixSocket}";
               MM_STATIC_LOCATION="${staticRoot}";
               DJANGO_SETTINGS_MODULE="membermatters.settings";
               PYTHONPATH = "${cfg.venv}/${pythonSet.python.sitePackages}";
@@ -197,11 +198,9 @@
               services.redis.servers = {
                 membermatters = {
                   enable = true;
-                  bind = "0.0.0.0";
-                  port = 6379;
-                  # user = "membermatters";
-                  # unixSocket = "/run/redis-membermatters-caching/socket";
-                  # unixSocketPerm = 600;
+                  user = "membermatters";
+                  unixSocket = "/run/redis-membermatters/socket";
+                  unixSocketPerm = 600;
                 };
               };
 

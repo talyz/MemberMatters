@@ -376,7 +376,7 @@ REQUEST_TIMEOUT = 0.05
 # Celery configuration
 CELERY_RESULT_BACKEND = "django-db"
 CELERY_BEAT_SCHEDULER = "django_celery_beat.schedulers:DatabaseScheduler"
-CELERY_BROKER_URL = os.getenv("MM_REDIS_HOST")
+CELERY_BROKER_URL = os.getenv("MM_CELERY_BROKER_URL", os.getenv("MM_REDIS_HOST"))
 
 # Django constance configuration
 CONSTANCE_BACKEND = "membermatters.constance_backend.DatabaseBackend"
