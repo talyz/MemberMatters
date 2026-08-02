@@ -59,6 +59,7 @@ dependencies = [
     "python-dateutil~=2.9.0",
     "django-import-export~=3.3.9",
     "pillow>=12.2.0",
+    "legacy-cgi; python_full_version >= '3.13'",
 ]
 
 [project.urls]
@@ -67,3 +68,11 @@ documentation = "https://membermatters.org/en/latest/"
 
 [project.scripts]
 manage = "manage:main"
+
+[tool.uv.extra-build-dependencies]
+pytest = ["setuptools"]
+py-ubjson = ["setuptools"]
+django-celery-beat = ["setuptools"]
+zeroconf = ["poetry-core", "setuptools"]
+mysqlclient = ["setuptools"]
+odfpy = [ "setuptools" ]

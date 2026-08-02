@@ -1,6 +1,10 @@
 version = 1
 revision = 3
 requires-python = ">=3.12"
+resolution-markers = [
+    "python_full_version >= '3.13'",
+    "python_full_version < '3.13'",
+]
 
 [[package]]
 name = "aiohappyeyeballs"
@@ -1149,6 +1153,15 @@ wheels = [
 ]
 
 [[package]]
+name = "legacy-cgi"
+version = "2.6.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f4/9c/91c7d2c5ebbdf0a1a510bfa0ddeaa2fbb5b78677df5ac0a0aa51cf7125b0/legacy_cgi-2.6.4.tar.gz", hash = "sha256:abb9dfc7835772f7c9317977c63253fd22a7484b5c9bbcdca60a29dcce97c577", size = 24603, upload-time = "2025-10-27T05:20:05.395Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8c/7e/e7394eeb49a41cc514b3eb49020223666cbf40d86f5721c2f07871e6d84a/legacy_cgi-2.6.4-py3-none-any.whl", hash = "sha256:7e235ce58bf1e25d1fc9b2d299015e4e2cd37305eccafec1e6bac3fc04b878cd", size = 20035, upload-time = "2025-10-27T05:20:04.289Z" },
+]
+
+[[package]]
 name = "mailchimp-marketing"
 version = "3.0.80"
 source = { registry = "https://pypi.org/simple" }
@@ -1196,6 +1209,7 @@ dependencies = [
     { name = "djangorestframework-simplejwt" },
     { name = "humanize" },
     { name = "ics" },
+    { name = "legacy-cgi", marker = "python_full_version >= '3.13'" },
     { name = "mailchimp-marketing" },
     { name = "mysqlclient" },
     { name = "pillow" },
@@ -1235,6 +1249,7 @@ requires-dist = [
     { name = "djangorestframework-simplejwt", specifier = "==5.3.1" },
     { name = "humanize", specifier = "~=4.9.0" },
     { name = "ics", specifier = "~=0.7.2" },
+    { name = "legacy-cgi", marker = "python_full_version >= '3.13'" },
     { name = "mailchimp-marketing", specifier = "~=3.0.80" },
     { name = "mysqlclient", specifier = "~=2.2.4" },
     { name = "pillow", specifier = ">=12.2.0" },
