@@ -109,8 +109,7 @@
         }
       );
 
-      nixosModules = let
-      in {
+      nixosModules = {
         membermatters =
           {
             config,
@@ -139,8 +138,14 @@
                 cfg.venv
               ];
 
+              env = {
+                MM_STATIC_LOCATION = "${placeholder "out"}/static";
+                MM_LOG_LOCATION = "errors.log";
+                MM_DB_LOCATION = "db.sqlite3";
+              };
+
               installPhase = ''
-                env MM_LOG_LOCATION=errors.log MM_DB_LOCATION=db.sqlite3 MM_STATIC_LOCATION="$out/static" python manage.py collectstatic
+                manage collectstatic
               '';
             };
 
@@ -205,7 +210,7 @@
               };
 
               systemd.services.membermatters = {
-                description = "Django Webapp server";
+                description = "MemberMatters main server application";
 
                 after = [
                   "network.target"
@@ -221,11 +226,16 @@
 
                 environment = membermattersEnv;
 
+                path = [
+                  cfg.venv
+                  pkgs.curl
+                ];
+
                 serviceConfig = {
-                  ExecStartPre = pkgs.writeShellScript "membermatter-prestart" ''
+                  ExecStartPre = pkgs.writeShellScript "membermatter-startpre" ''
                     set -euo pipefail
-                    ${cfg.venv}/bin/manage migrate
-                    ${cfg.venv}/bin/manage loaddata ${pythonSet.membermatters.src}/fixtures/initial.json
+                    manage migrate
+                    manage loaddata ${pythonSet.membermatters.src}/fixtures/initial.json
                   '';
                   ExecStart = "${cfg.venv}/bin/daphne -b 0.0.0.0 -p 8000 membermatters.asgi:application";
                   Restart = "on-failure";
@@ -235,19 +245,7 @@
 
                   StateDirectory = "membermatters";
                   RuntimeDirectory = "membermatters";
-                  # LogsDirectory = "membermatters";
                   WorkingDirectory = "/var/lib/membermatters";
-
-                  # BindReadOnlyPaths = [
-                  #   "${
-                  #     config.environment.etc."ssl/certs/ca-certificates.crt".source
-                  #   }:/etc/ssl/certs/ca-certificates.crt"
-                  #   builtins.storeDir
-                  #   "-/etc/resolv.conf"
-                  #   "-/etc/nsswitch.conf"
-                  #   "-/etc/hosts"
-                  #   "-/etc/localtime"
-                  # ];
                 };
 
                 wantedBy = [ "multi-user.target" ];
@@ -359,8 +357,6 @@
                   enable = true;
                   hostname = "localhost";
                 };
-
-                system.stateVersion = "25.11";
 
                 networking.firewall.enable = false;
               };
