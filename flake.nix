@@ -237,7 +237,16 @@
                     manage migrate
                     manage loaddata ${pythonSet.membermatters.src}/fixtures/initial.json
                   '';
-                  ExecStart = "${cfg.venv}/bin/daphne -b 0.0.0.0 -p 8000 membermatters.asgi:application";
+                  ExecStart = "${cfg.venv}/bin/daphne -e systemd:domain=UNIX:name=membermatters membermatters.asgi:application";
+                  ExecStartPost = pkgs.writeShellScript "membermatter-startpost" ''
+                    set -euo pipefail
+
+                    # Wait for app to be running
+                    while ! curl -sf --unix-socket /run/membermatters.sock localhost/api/config/; do sleep 1; done
+
+                    # Hack around https://github.com/twisted/twisted/issues/10261
+                    chmod o-rwx /run/membermatters.sock
+                  '';
                   Restart = "on-failure";
 
                   User = "membermatters";
@@ -249,6 +258,19 @@
                 };
 
                 wantedBy = [ "multi-user.target" ];
+              };
+              systemd.sockets.membermatters = {
+                wantedBy = [
+                  "sockets.target"
+                  "membermatters.service"
+                ];
+                socketConfig = {
+                  ListenStream = "/run/membermatters.sock";
+                  FileDescriptorName = "membermatters";
+                  SocketUser = "membermatters";
+                  SocketGroup = "nginx";
+                  SocketMode = "0660";
+                };
               };
 
               systemd.services.membermatters-celery-worker = {
@@ -305,7 +327,7 @@
                 recommendedGzipSettings = true;
                 recommendedProxySettings = true;
 
-                upstreams.membermatters.servers."localhost:8000" = { };
+                upstreams.membermatters.servers."unix://run/membermatters.sock" = { };
 
                 virtualHosts.${cfg.hostname} = {
                   root = self.packages.${system}.frontend;
@@ -365,8 +387,8 @@
               machine.wait_for_unit("membermatters.service")
 
               with subtest("Web interface getting ready"):
-                  machine.wait_until_succeeds("curl -fs localhost:8000/api/config/")
-                  print(machine.succeed("curl -fs localhost:8000/api/config/"))
+                  machine.wait_until_succeeds("curl -fs localhost/api/config/")
+                  print(machine.succeed("curl -fs localhost/api/config/"))
             '';
           };
 
