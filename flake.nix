@@ -124,8 +124,13 @@
 
             pythonSet = pythonSets.${system};
 
-            inherit (lib.options) mkOption;
-            inherit (lib.modules) mkIf;
+            inherit (lib)
+              mkOption
+              mkIf
+              toShellVars
+              concatStringsSep
+              attrNames;
+
 
             staticRoot = pkgs.stdenv.mkDerivation {
               name = "membermatters-static";
@@ -160,6 +165,16 @@
               DJANGO_SETTINGS_MODULE="membermatters.settings";
               PYTHONPATH = "${cfg.venv}/${pythonSet.python.sitePackages}";
             };
+
+            membermattersManage = pkgs.writeScriptBin "membermatters" ''
+              set -o errexit -o pipefail -o nounset -o errtrace
+              shopt -s inherit_errexit
+
+              cd /var/lib/membermatters
+              ${toShellVars membermattersEnv}
+              export ${concatStringsSep " " (attrNames membermattersEnv)}
+              sudo -u membermatters --preserve-env=${concatStringsSep "," (attrNames membermattersEnv)} ${cfg.venv}/bin/manage "$@"
+            '';
           in
           {
             options.services.membermatters = {
@@ -189,6 +204,10 @@
             };
 
             config = mkIf cfg.enable {
+              environment.systemPackages = [
+                membermattersManage
+              ];
+
               services.postgresql = {
                 enable = true;
                 ensureDatabases = [ "membermatters" ];
@@ -235,7 +254,6 @@
                   ExecStartPre = pkgs.writeShellScript "membermatter-startpre" ''
                     set -euo pipefail
                     manage migrate
-                    manage loaddata ${pythonSet.membermatters.src}/fixtures/initial.json
                   '';
                   ExecStart = "${cfg.venv}/bin/daphne -e systemd:domain=UNIX:name=membermatters membermatters.asgi:application";
                   ExecStartPost = pkgs.writeShellScript "membermatter-startpost" ''
@@ -389,6 +407,9 @@
               with subtest("Web interface getting ready"):
                   machine.wait_until_succeeds("curl -fs localhost/api/config/")
                   print(machine.succeed("curl -fs localhost/api/config/"))
+
+              with subtest("Add admin user"):
+                  print(machine.succeed("DJANGO_SUPERUSER_PASSWORD='MemberMatters!' membermatters createsuperuser --no-input --email default@example.com"))
             '';
           };
 
