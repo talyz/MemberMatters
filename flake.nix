@@ -201,6 +201,36 @@
                   The hostname MemberMatters will be hosted at.
                 '';
               };
+
+              initialAdminUser = {
+                passwordFile = mkOption {
+                  type = lib.types.externalPath;
+                  example = "/path/to/password_file";
+                  description = ''
+                    A file containing the initial admin password.
+                  '';
+                };
+
+                email = mkOption {
+                  type = lib.types.str;
+                  example = "default@example.com";
+                };
+
+                screen_name = mkOption {
+                  type = lib.types.str;
+                  example = "the_admin";
+                };
+
+                first_name = mkOption {
+                  type = lib.types.str;
+                  example = "Chuck";
+                };
+
+                last_name = mkOption {
+                  type = lib.types.str;
+                  example = "Testa";
+                };
+              };
             };
 
             config = mkIf cfg.enable {
@@ -248,13 +278,50 @@
                 path = [
                   cfg.venv
                   pkgs.curl
+                  pkgs.jq
                 ];
 
                 serviceConfig = {
-                  ExecStartPre = pkgs.writeShellScript "membermatter-startpre" ''
-                    set -euo pipefail
-                    manage migrate
-                  '';
+                  ExecStartPre =
+                    let
+                      makePassword = pkgs.writeText "make-password" ''
+                        from django.contrib.auth.hashers import make_password
+                        with open("${cfg.initialAdminUser.passwordFile}") as pf:
+                            print(make_password(pf.read().strip("\n")))
+                      '';
+                    in
+                    pkgs.writeShellScript "membermatter-startpre" ''
+                      set -euo pipefail
+                      shopt -s inherit_errexit
+
+                      manage migrate
+
+                      if [[ ! -e /var/lib/membermatters/admin_created ]]; then
+                          ${toShellVars cfg.initialAdminUser}
+                          export ${concatStringsSep " " (attrNames cfg.initialAdminUser)}
+
+                          password=$(manage shell <${makePassword})
+                          export password
+
+                          current_time=$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")
+                          export current_time
+
+                          jq <${pythonSet.membermatters.src}/fixtures/initial.json >/run/membermatters/admin.json \
+                              '.[0].fields.password = ($ENV.password) |
+                               .[0].fields.email = ($ENV.email) |
+                               .[0].fields.last_login = ($ENV.current_time) |
+                               .[1].fields.screen_name = ($ENV.screen_name) |
+                               .[1].fields.first_name = ($ENV.first_name) |
+                               .[1].fields.last_name = ($ENV.last_name) |
+                               .[1].fields.created = ($ENV.current_time) |
+                               .[1].fields.modified = ($ENV.current_time) |
+                               .[1].fields.last_memberbucks_purchase = ($ENV.current_time)'
+
+                          manage loaddata /run/membermatters/admin.json
+
+                          touch /var/lib/membermatters/admin_created
+                      fi
+                    '';
                   ExecStart = "${cfg.venv}/bin/daphne -e systemd:domain=UNIX:name=membermatters membermatters.asgi:application";
                   ExecStartPost = pkgs.writeShellScript "membermatter-startpost" ''
                     set -euo pipefail
@@ -393,9 +460,18 @@
                   self.nixosModules.membermatters
                 ];
 
+                environment.etc.membermattersAdminPassword.text = "MemberMatters!";
+
                 services.membermatters = {
                   enable = true;
                   hostname = "localhost";
+                  initialAdminUser = {
+                    passwordFile = "/etc/membermattersAdminPassword";
+                    email = "nix@os.com";
+                    screen_name = "the_badmin";
+                    first_name = "bad";
+                    last_name = "minton";
+                  };
                 };
 
                 networking.firewall.enable = false;
@@ -407,9 +483,6 @@
               with subtest("Web interface getting ready"):
                   machine.wait_until_succeeds("curl -fs localhost/api/config/")
                   print(machine.succeed("curl -fs localhost/api/config/"))
-
-              with subtest("Add admin user"):
-                  print(machine.succeed("DJANGO_SUPERUSER_PASSWORD='MemberMatters!' membermatters createsuperuser --no-input --email default@example.com"))
             '';
           };
 
