@@ -120,7 +120,7 @@
 
           let
             cfg = config.services.membermatters;
-            inherit (pkgs) system;
+            inherit (pkgs.stdenv.hostPlatform) system;
 
             pythonSet = pythonSets.${system};
 
@@ -154,26 +154,14 @@
               '';
             };
 
-            membermattersEnv = {
-              MM_ENV="Production";
-              MM_LOG_LOCATION="errors.log";
-              MM_USE_POSTGRES="True";
-              POSTGRES_HOST="";
-              MM_REDIS_HOST="unix://${config.services.redis.servers.membermatters.unixSocket}";
-              MM_CELERY_BROKER_URL="redis+socket://${config.services.redis.servers.membermatters.unixSocket}";
-              MM_STATIC_LOCATION="${staticRoot}";
-              DJANGO_SETTINGS_MODULE="membermatters.settings";
-              PYTHONPATH = "${cfg.venv}/${pythonSet.python.sitePackages}";
-            };
-
             membermattersManage = pkgs.writeScriptBin "membermatters" ''
               set -o errexit -o pipefail -o nounset -o errtrace
               shopt -s inherit_errexit
 
               cd /var/lib/membermatters
-              ${toShellVars membermattersEnv}
-              export ${concatStringsSep " " (attrNames membermattersEnv)}
-              sudo -u membermatters --preserve-env=${concatStringsSep "," (attrNames membermattersEnv)} ${cfg.venv}/bin/manage "$@"
+              ${toShellVars cfg.config}
+              export ${concatStringsSep " " (attrNames cfg.config)}
+              sudo -u membermatters --preserve-env=${concatStringsSep "," (attrNames cfg.config)} ${cfg.venv}/bin/manage "$@"
             '';
           in
           {
@@ -182,7 +170,7 @@
                 type = lib.types.bool;
                 default = false;
                 description = ''
-                  Enable membermatters
+                  Enable membermatters.
                 '';
               };
 
@@ -231,9 +219,45 @@
                   example = "Testa";
                 };
               };
+
+              config = mkOption {
+                type = with lib.types;
+                attrsOf (
+                  nullOr (
+                    oneOf [
+                      bool
+                      int
+                      port
+                      path
+                      str
+                    ]));
+                example = lib.literalExample ''
+                  {
+                    MM_LANGUAGE_CODE = "en-au";
+                    MM_TIME_ZONE = "Australia/Brisbane";
+                  }
+                '';
+                description = ''
+                  Variables to set in MemberMatters' environment.
+                '';
+              };
+
             };
 
+
             config = mkIf cfg.enable {
+              services.membermatters.config = {
+                MM_ENV = "Production";
+                MM_LOG_LOCATION = "errors.log";
+                MM_USE_POSTGRES = "True";
+                POSTGRES_HOST = "";
+                MM_REDIS_HOST = "unix://${config.services.redis.servers.membermatters.unixSocket}";
+                MM_CELERY_BROKER_URL = "redis+socket://${config.services.redis.servers.membermatters.unixSocket}";
+                MM_STATIC_LOCATION = "${staticRoot}";
+                DJANGO_SETTINGS_MODULE = "membermatters.settings";
+                PYTHONPATH = "${cfg.venv}/${pythonSet.python.sitePackages}";
+              };
+
               environment.systemPackages = [
                 membermattersManage
               ];
@@ -273,7 +297,7 @@
                   "membermatters-celery-beat.service"
                 ];
 
-                environment = membermattersEnv;
+                environment = cfg.config;
 
                 path = [
                   cfg.venv
@@ -368,7 +392,7 @@
                   "postgresql.service"
                   "membermatters.service"
                 ];
-                environment = membermattersEnv;
+                environment = cfg.config;
                 serviceConfig = {
                   Type = "simple";
                   User = "membermatters";
@@ -391,7 +415,7 @@
                   "postgresql.service"
                   "membermatters.service"
                 ];
-                environment = membermattersEnv;
+                environment = cfg.config;
                 serviceConfig = {
                   Type = "simple";
                   User = "membermatters";
